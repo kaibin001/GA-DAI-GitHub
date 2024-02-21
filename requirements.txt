@@ -1,6 +1,7 @@
-streamlit==1.21.0
-pandas
-scikit-learn
-gspread
-oauth2client
-streamlit_autorefresh
+openai==0.28.1
+langchain
+SQLAlchemy
+unstructured
+unstructured[pdf]
+chromadb==0.4.11
+tiktoken

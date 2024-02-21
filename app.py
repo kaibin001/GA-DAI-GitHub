@@ -1,53 +1,53 @@
-# Import Libraries
+import os
+import sys
 import streamlit as st
-import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier
 
-# Set Page configuration
-# Read more at https://docs.streamlit.io/1.6.0/library/api-reference/utilities/st.set_page_config
-st.set_page_config(page_title='Predict Flower Species', page_icon='🌷', layout='wide', initial_sidebar_state='expanded')
+import openai
+from langchain.chains import ConversationalRetrievalChain
+from langchain.chat_models import ChatOpenAI
+from langchain.document_loaders import DirectoryLoader, TextLoader
+from langchain.embeddings import OpenAIEmbeddings
+from langchain.indexes import VectorstoreIndexCreator
+from langchain.indexes.vectorstore import VectorStoreIndexWrapper
+from langchain.llms import OpenAI
+from langchain.vectorstores import Chroma
 
-# Set title of the app
-st.title('🌷 Predict Flower Species')
+os.environ["OPENAI_API_KEY"] = "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"
 
-# Load data
-df = pd.read_csv('iris.csv')
+# Enable to save to disk & reuse the model (for repeated queries on the same data)
+PERSIST = False
 
-# Set input widgets
-st.sidebar.subheader('Select flower attributes')
-sepal_length = st.sidebar.slider('Sepal length', 4.3, 7.9, 5.8)
-sepal_width = st.sidebar.slider('Sepal width', 2.0, 4.4, 3.1)
-petal_length = st.sidebar.slider('Petal length', 1.0, 6.9, 3.8)
-petal_width = st.sidebar.slider('Petal width', 0.1, 2.5, 1.2)
+if PERSIST and os.path.exists("persist"):
+    st.write("Reusing index...\n")
+    vectorstore = Chroma(persist_directory="persist", embedding_function=OpenAIEmbeddings())
+    index = VectorStoreIndexWrapper(vectorstore=vectorstore)
+else:
+    # loader = TextLoader("data/data.txt") # Use this line if you only need a specific file e.g. data.txt
+    loader = DirectoryLoader("data/")
+    if PERSIST:
+        index = VectorstoreIndexCreator(vectorstore_kwargs={"persist_directory": "persist"}).from_loaders([loader])
+    else:
+        index = VectorstoreIndexCreator().from_loaders([loader])
 
-# Separate to X and y
-X = df.drop('Species', axis=1)
-y = df.Species
+chain = ConversationalRetrievalChain.from_llm(
+    llm=ChatOpenAI(model="gpt-3.5-turbo"),
+    retriever=index.vectorstore.as_retriever(search_kwargs={"k": 1}),
+)
 
-# Split data
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+chat_history = []
 
-# Build model
-model = RandomForestClassifier(max_depth=2, max_features=4, n_estimators=200, random_state=42)
-model.fit(X_train, y_train)
+st.title("Conversational AI with Langchain and OpenAI")
+query = st.text_input("Enter a prompt:")
 
-# Generate prediction based on user selected attributes
-y_pred = model.predict([[sepal_length, sepal_width, petal_length, petal_width]])
+if st.button("Ask"):
+    if query in ['quit', 'q', 'exit']:
+        st.write("Exiting the chat.")
+        st.stop()
+    result = chain({"question": query, "chat_history": chat_history})
+    st.write(result['answer'])
+    chat_history.append((query, result['answer']))
 
-# Display EDA
-st.subheader('Exploratory Data Analysis')
-st.write('The data is grouped by the class and the variable mean is computed for each class.')
-groupby_species_mean = df.groupby('Species').mean()
-st.write(groupby_species_mean)
-st.bar_chart(groupby_species_mean.T)
-
-# Print input features
-st.subheader('Variables in Data Set')
-input_feature = pd.DataFrame([[sepal_length, sepal_width, petal_length, petal_width]],
-                            columns=['sepal_length', 'sepal_width', 'petal_length', 'petal_width'])
-st.write(input_feature)
-
-# Print predicted flower species
-st.subheader('Prediction')
-st.metric('Predicted Flower Species is :', y_pred[0], '')
+st.write("Chat History:")
+for i, (input_query, answer) in enumerate(chat_history):
+    st.write(f"{i + 1}. User: {input_query}")
+    st.write(f"{i + 1}. AI: {answer}")
